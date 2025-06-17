@@ -61,10 +61,14 @@ def upstox_login(creds):
 def upstox_auth(creds):
     response = None
     try:
+        headers = creds["api"].get("headers")
+        if not headers:
+            raise KeyError("Missing headers. Please login first.")
+        
         url = "https://api.upstox.com/v2/user/profile"
         
         #Make the GET request
-        response = requests.get(url, headers = creds["api"]["headers"])
+        response = requests.get(url, headers = headers)
         
         #Check the response
         if response.status_code == 200:
@@ -76,11 +80,12 @@ def upstox_auth(creds):
         else:
             #Request failed
             print("Authentication Failed: " + creds["auth"]["client_id"])
-            raise KeyError
+            raise KeyError("Auth API returned error status")
             
-    except(ValueError, KeyError):
+    except(ValueError, KeyError) as e:
+        logging.critical("Auth API Failed:")
+        logging.critical(str(e))
         if response:
-            logging.critical("Auth API Failed:")
             logging.critical(response.status_code)
             logging.critical(response.text)
             logging.critical("Curlify Request:")
