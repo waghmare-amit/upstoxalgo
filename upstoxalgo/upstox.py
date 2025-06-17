@@ -61,9 +61,9 @@ def upstox_login(creds):
 def upstox_auth(creds):
     response = None
     try:
-        headers = creds["api"].get("headers")
+        headers = creds.get("api", {}).get("headers", None)
         if not headers:
-            raise KeyError("Missing headers. Please login first.")
+            raise KeyError("Missing 'headers' in creds['api'] — call upstox_login() first")
         
         url = "https://api.upstox.com/v2/user/profile"
         
@@ -74,23 +74,27 @@ def upstox_auth(creds):
         if response.status_code == 200:
             #Request was successful
             json_data = response.json()
-            if json_data["status"] == "success":
+            if json_data.get("status") == "success":
                 print("Authentication Successful: " + creds["auth"]["client_id"])
                 return creds
+            else:
+                #Request failed
+                print("Auth API returned error status")
+                raise KeyError("Auth API returned error status")
         else:
-            #Request failed
             print("Authentication Failed: " + creds["auth"]["client_id"])
-            raise KeyError("Auth API returned error status")
+            raise KeyError
             
     except(ValueError, KeyError) as e:
-        logging.critical("Auth API Failed:")
-        logging.critical(str(e))
+        logging.critical("Auth API Failed:" + str(e))
         if response:
-            logging.critical(response.status_code)
-            logging.critical(response.text)
-            logging.critical("Curlify Request:")
-            logging.critical(curlify.to_curl(response.request))
-        print("Logging into: " + creds["auth"]["client_id"])
+            try:
+                logging.critical("Status Code: %s", response.status_code)
+                logging.critical("Response Text: %s", response.text)
+                logging.critical("Curlify Request: %s", curlify.to_curl(response.request))
+            except Exception as curl_err:
+                logging.critical("Curlify failed: %s", curl_err)
+        print("Retrying login for: " + creds["auth"]["client_id"])
         return upstox_login(creds)
 
 def upstox_margin(creds):
