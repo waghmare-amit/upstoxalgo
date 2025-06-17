@@ -69,8 +69,8 @@ def upstox_auth(creds):
             # Request was successful
             json_data = response.json()
             if json_data["status"]=="success":
-            print("Authentication Successful: " + creds["auth"]["client_id"])
-            return creds
+                print("Authentication Successful: " + creds["auth"]["client_id"])
+                return creds
         else:
             # Request failed
             print("Authentication Failed: " + creds["auth"]["client_id"])
