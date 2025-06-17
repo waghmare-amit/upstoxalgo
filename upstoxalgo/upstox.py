@@ -89,6 +89,7 @@ def upstox_auth(creds):
         return upstox_login(creds)
 
 def upstox_margin(creds):
+    response = None
     json_data = None
     try:
         url = "https://api.upstox.com/v2/user/get-funds-and-margin"
@@ -128,6 +129,7 @@ def upstox_margin(creds):
     return creds
 
 def upstox_positions(creds):
+    response = None
     json_data = None
     try:
         url = "https://api.upstox.com/v2/portfolio/short-term-positions"
@@ -163,5 +165,5 @@ def upstox_positions(creds):
         print(response)
 
     creds["api"]["last_updated"] = str(datetime.datetime.now().strftime('%H:%M:%S'))
-    creds["api"]["last_function"] = "margin"
+    creds["api"]["last_function"] = "postions"
     return creds
