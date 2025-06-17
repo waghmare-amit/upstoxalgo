@@ -1,5 +1,6 @@
 from .imports_and_instrument_token import *
 
+
 def upstox_login(creds):
     client_id = creds["auth"]["client_id"]
     client_pass = creds["auth"]["client_pass"]
@@ -7,6 +8,10 @@ def upstox_login(creds):
     api_key = creds["auth"]["api_key"]
     api_secret = creds["auth"]["api_secret"]
     redirect_uri = creds["auth"]["redirect_uri"]
+    ucc = creds["auth"].get("ucc", "")  # Add UCC from creds
+
+    # Initialize api headers to avoid KeyError
+    creds.setdefault("api", {}).setdefault("headers", {})
 
     login_url = f"https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id={api_key}&redirect_uri={redirect_uri}"
 
@@ -14,19 +19,21 @@ def upstox_login(creds):
 
     try:
         auth_code = input("Paste the code from the redirected browser here: ").strip()
+        if not auth_code:
+            raise ValueError("Authorization code cannot be empty")
     except Exception as e:
-        print(f"Error reading input: {e}")
+        logging.error(f"Error reading auth code input: {e}")
+        creds["api"]["last_updated"] = str(datetime.datetime.now().strftime('%H:%M:%S'))
+        creds["api"]["last_function"] = "login_failed"
         return creds
     
     url = "https://api.upstox.com/v2/login/authorization/token"
     
-    #Request headers
     headers = {
-        'accept': 'application/json',
+        'Accept': 'application/json',
         'Content-Type': 'application/x-www-form-urlencoded'
     }
     
-    #Request data
     data = {
         'code': auth_code,
         'client_id': api_key,
@@ -35,144 +42,183 @@ def upstox_login(creds):
         'grant_type': 'authorization_code'
     }
     
-    #Make the POST request
-    response = requests.post(url, headers=headers, data=data)
-    
-    #Check the response 
-    if response.status_code == 200:
-        #Request was successful
-        print("Access Token:", response.json().get('access_token'))
-        creds["auth"]["access_token"] = response.json().get('access_token')
+    try:
+        response = requests.post(url, headers=headers, data=data)
+        response.raise_for_status()
+        
+        token = response.json().get('access_token')
+        if not token:
+            raise ValueError("Access token not found in response")
+        
+        creds["auth"]["access_token"] = token
         creds["api"]["headers"] = {
-                                    'accept': 'application/json',
-                                    'Api-Version': '2.0',
-                                    'Authorization': f'Bearer {creds["auth"]["access_token"]}'
-                                }
-        print("Logged in : " + creds["auth"]["client_id"])
-    else:
-        #Request failed
-        print("Error:", response.status_code, response.text)
-        print("Unable to Log in : " + creds["auth"]["client_id"])
+            'Accept': 'application/json',
+            'Api-Version': '2.0',
+            'Authorization': f'Bearer {token}'
+        }
+        print(f"Logged in: {client_id}")
+        
+    except requests.HTTPError as e:
+        logging.error(f"Token request failed: Status {e.response.status_code}, {e.response.text}")
+        print(f"Unable to log in: {client_id}. Error: {e.response.status_code}, {e.response.text}")
+        creds["api"]["last_updated"] = str(datetime.datetime.now().strftime('%H:%M:%S'))
+        creds["api"]["last_function"] = "login_failed"
+        return creds
+    except Exception as e:
+        logging.error(f"Unexpected error in login: {e}")
+        print(f"Unable to log in: {client_id}. Error: {e}")
+        creds["api"]["last_updated"] = str(datetime.datetime.now().strftime('%H:%M:%S'))
+        creds["api"]["last_function"] = "login_failed"
+        return creds
 
     creds["api"]["last_updated"] = str(datetime.datetime.now().strftime('%H:%M:%S'))
     creds["api"]["last_function"] = "login"
     return creds
     
 def upstox_auth(creds):
-    response = None
     try:
         headers = creds.get("api", {}).get("headers", None)
         if not headers:
-            raise KeyError("Missing 'headers' in creds['api'] — call upstox_login() first")
+            logging.error("Missing 'headers' in creds['api'] — call upstox_login() first")
+            print(f"Authentication failed: {creds['auth']['client_id']}. Headers missing.")
+            return upstox_login(creds)
         
-        url = "https://api.upstox.com/v2/user/profile"
+        if not creds["auth"].get("ucc"):
+            logging.error("Missing 'ucc' in creds['auth']")
+            raise ValueError("UCC is required for profile endpoint")
         
-        #Make the GET request
-        response = requests.get(url, headers = headers)
+        url = f"https://api.upstox.com/v2/user/profile?ucc={creds['auth']['ucc']}"
         
-        #Check the response
-        if response.status_code == 200:
-            #Request was successful
-            json_data = response.json()
-            if json_data.get("status") == "success":
-                print("Authentication Successful: " + creds["auth"]["client_id"])
-                return creds
-            else:
-                #Request failed
-                print("Auth API returned error status")
-                raise KeyError("Auth API returned error status")
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        
+        json_data = response.json()
+        if json_data.get("status") != "success":
+            logging.error(f"Auth API returned error: {json_data}")
+            raise ValueError("Auth API returned error status")
+        
+        print(f"Authentication Successful: {creds['auth']['client_id']}")
+        
+    except requests.HTTPError as e:
+        logging.critical(f"Auth API failed: Status {e.response.status_code}, {e.response.text}")
+        logging.critical(f"Curlify Request: {curlify.to_curl(e.response.request)}")
+        if e.response.status_code == 401:
+            print(f"Token expired for: {creds['auth']['client_id']}. Retrying login.")
+            return upstox_login(creds)
         else:
-            print("Authentication Failed: " + creds["auth"]["client_id"])
-            raise KeyError
-            
-    except(ValueError, KeyError) as e:
-        logging.critical("Auth API Failed:" + str(e))
-        if response:
-            try:
-                logging.critical("Status Code: %s", response.status_code)
-                logging.critical("Response Text: %s", response.text)
-                logging.critical("Curlify Request: %s", curlify.to_curl(response.request))
-            except Exception as curl_err:
-                logging.critical("Curlify failed: %s", curl_err)
-        print("Retrying login for: " + creds["auth"]["client_id"])
-        return upstox_login(creds)
+            print(f"Authentication Failed: {creds['auth']['client_id']}. Error: {e}")
+            return creds
+    except ValueError as e:
+        logging.critical(f"Auth API failed: {e}")
+        print(f"Authentication Failed: {creds['auth']['client_id']}. Error: {e}")
+        return creds
+    except Exception as e:
+        logging.critical(f"Unexpected error in auth: {e}")
+        print(f"Authentication Failed: {creds['auth']['client_id']}. Error: {e}")
+        return creds
+
+    creds["api"]["last_updated"] = str(datetime.datetime.now().strftime('%H:%M:%S'))
+    creds["api"]["last_function"] = "auth"
+    return creds
 
 def upstox_margin(creds):
-    response = None
-    json_data = None
     try:
+        headers = creds.get("api", {}).get("headers", None)
+        if not headers:
+            logging.error("Missing 'headers' in creds['api'] — call upstox_login() first")
+            print(f"Margin retrieval failed: {creds['auth']['client_id']}. Headers missing.")
+            return upstox_login(creds)
+        
         url = "https://api.upstox.com/v2/user/get-funds-and-margin"
         
-        #Make the GET request
-        response = requests.get(url, headers = creds["api"]["headers"])
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
         
-        #Check the response
-        if response.status_code == 200:
-            #Request was successful
-            json_data = response.json()
-            if json_data["status"] == "success":
-                creds["api"]["margin"] = json_data["data"]
-            else:
-                #Request failed
-                print("Status Failed")
-                raise KeyError
+        json_data = response.json()
+        if json_data.get("status") != "success":
+            logging.error(f"Margin API returned error: {json_data}")
+            raise ValueError("Margin API returned error status")
+        
+        creds["api"]["margin"] = json_data["data"]
+        print(f"Margin retrieved for: {creds['auth']['client_id']}")
+        
+    except requests.HTTPError as e:
+        logging.critical(f"Margin API failed: Status {e.response.status_code}, {e.response.text}")
+        logging.critical(f"Curlify Request: {curlify.to_curl(e.response.request)}")
+        if e.response.status_code == 401:
+            print(f"Token expired for: {creds['auth']['client_id']}. Retrying login.")
+            return upstox_login(creds)
         else:
-            url = "https://api.upstox.com/v2/user/profile"
-            response = requests.get(url, headers = creds["api"]["headers"])
-            if response.status_code != 200:
-                print(f"Failed to retrieve data. Status Code: {response.status_code}")
-                raise KeyError
-            else:
-                #Upstox is down in Margin API but rest everything is working.
+            # Fallback to profile check
+            try:
+                profile_url = f"https://api.upstox.com/v2/user/profile?ucc={creds['auth']['ucc']}"
+                profile_response = requests.get(profile_url, headers=headers)
+                profile_response.raise_for_status()
+                print(f"Margin API down but profile accessible for: {creds['auth']['client_id']}")
                 return creds
-                
-    except(ValueError, KeyError):
-        logging.critical("Errors in Margin Module: " + creds["auth"]["client_id"])
-        logging.critical(json_data)
-        logging.critical("Curlify Data...")
-        logging.critical(curlify.to_curl(response.request))
-        print(response)
+            except requests.HTTPError:
+                print(f"Margin and profile APIs failed: {creds['auth']['client_id']}. Error: {e}")
+                return upstox_login(creds)
+    except ValueError as e:
+        logging.critical(f"Margin API failed: {e}")
+        print(f"Margin retrieval failed: {creds['auth']['client_id']}. Error: {e}")
+        return creds
+    except Exception as e:
+        logging.critical(f"Unexpected error in margin: {e}")
+        print(f"Margin retrieval failed: {creds['auth']['client_id']}. Error: {e}")
+        return creds
 
     creds["api"]["last_updated"] = str(datetime.datetime.now().strftime('%H:%M:%S'))
     creds["api"]["last_function"] = "margin"
     return creds
 
 def upstox_positions(creds):
-    response = None
-    json_data = None
     try:
+        headers = creds.get("api", {}).get("headers", None)
+        if not headers:
+            logging.error("Missing 'headers' in creds['api'] — call upstox_login() first")
+            print(f"Positions retrieval failed: {creds['auth']['client_id']}. Headers missing.")
+            return upstox_login(creds)
+        
         url = "https://api.upstox.com/v2/portfolio/short-term-positions"
         
-        #Make the GET request
-        response = requests.get(url, headers = creds["api"]["headers"])
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
         
-        #Check the response
-        if response.status_code == 200:
-            #Request was successful
-            json_data = response.json()
-            if json_data["status"] == "success":
-                creds["api"]["positions"] = json_data["data"]
-            else:
-                #Request failed
-                print("Status Failed")
-                raise KeyError
+        json_data = response.json()
+        if json_data.get("status") != "success":
+            logging.error(f"Positions API returned error: {json_data}")
+            raise ValueError("Positions API returned error status")
+        
+        creds["api"]["positions"] = json_data["data"]
+        print(f"Positions retrieved for: {creds['auth']['client_id']}")
+        
+    except requests.HTTPError as e:
+        logging.critical(f"Positions API failed: Status {e.response.status_code}, {e.response.text}")
+        logging.critical(f"Curlify Request: {curlify.to_curl(e.response.request)}")
+        if e.response.status_code == 401:
+            print(f"Token expired for: {creds['auth']['client_id']}. Retrying login.")
+            return upstox_login(creds)
         else:
-            url = "https://api.upstox.com/v2/user/profile"
-            response = requests.get(url, headers = creds["api"]["headers"])
-            if response.status_code != 200:
-                print(f"Failed to retrieve data. Status Code: {response.status_code}")
-                raise KeyError
-            else:
-                #Upstox is down in Position API but rest everything is working.
+            # Fallback to profile check
+            try:
+                profile_url = f"https://api.upstox.com/v2/user/profile?ucc={creds['auth']['ucc']}"
+                profile_response = requests.get(profile_url, headers=headers)
+                profile_response.raise_for_status()
+                print(f"Positions API down but profile accessible for: {creds['auth']['client_id']}")
                 return creds
-                
-    except(ValueError, KeyError):
-        logging.critical("Errors in Position Module: " + creds["auth"]["client_id"])
-        logging.critical(json_data)
-        logging.critical("Curlify Data...")
-        logging.critical(curlify.to_curl(response.request))
-        print(response)
+            except requests.HTTPError:
+                print(f"Positions and profile APIs failed: {creds['auth']['client_id']}. Error: {e}")
+                return upstox_login(creds)
+    except ValueError as e:
+        logging.critical(f"Positions API failed: {e}")
+        print(f"Positions retrieval failed: {creds['auth']['client_id']}. Error: {e}")
+        return creds
+    except Exception as e:
+        logging.critical(f"Unexpected error in positions: {e}")
+        print(f"Positions retrieval failed: {creds['auth']['client_id']}. Error: {e}")
+        return creds
 
     creds["api"]["last_updated"] = str(datetime.datetime.now().strftime('%H:%M:%S'))
-    creds["api"]["last_function"] = "postions"
+    creds["api"]["last_function"] = "positions"  # Fixed typo: "postions" -> "positions"
     return creds
