@@ -19,6 +19,7 @@ def upstox_login(creds):
     #Request headers
     headers = {
         'accept': 'application/json',
+        'Api-Version': '2.0',
         'Content-Type': 'application/x-www-form-urlencoded'
     }
     
