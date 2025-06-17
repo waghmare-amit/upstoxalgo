@@ -40,7 +40,7 @@ def upstox_login(creds):
         #Request was successful
         print("Access Token:", response.json().get('access_token'))
         creds["auth"]["access_token"] = response.json().get('access_token')
-        creds["auth"]["headers"] = headers = {
+        creds["api"]["headers"] = headers = {
                                             'accept': 'application/json',
                                             'Api-Version': '2.0',
                                             'Authorization': f'Bearer {creds["auth"]["access_token"]}'
@@ -152,6 +152,6 @@ def upstox_positions(creds):
         print(response)
 
     creds["api"]["last_updated"] = str(datetime.datetime.now().strftime('%H:%M:%S'))
-    creds["api"]["last_function"] = "margin"
+    creds["api"]["last_function"] = "positions"
     return creds
 
