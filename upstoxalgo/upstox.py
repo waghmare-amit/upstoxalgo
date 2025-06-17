@@ -1,4 +1,4 @@
-from imports_and_instrument_token import *
+from .imports_and_instrument_token import *
 
 def upstox_login(creds):
     client_id = creds["auth"]["client_id"]

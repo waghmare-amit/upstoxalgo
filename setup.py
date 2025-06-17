@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
 setuptools.setup(
     name = 'upstoxalgo',
     packages = setuptools.find_packages(),
-    version = '0.2.1',
+    version = '0.2.2',
     include_package_data = True,
     description = 'Unofficial Python library for Upstox',
     long_description = long_description,
