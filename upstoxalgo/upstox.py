@@ -12,14 +12,17 @@ def upstox_login(creds):
 
     print(f"Visit this url: {login_url}. Then, paste the code from the redirected browser.")
 
-    auth_code = input("Paste the code from the redirected browser here: ")
+    try:
+        auth_code = input("Paste the code from the redirected browser here: ").strip()
+    except Exception as e:
+        print(f"Error reading input: {e}")
+        return creds
     
     url = "https://api.upstox.com/v2/login/authorization/token"
     
     #Request headers
     headers = {
         'accept': 'application/json',
-        'Api-Version': '2.0',
         'Content-Type': 'application/x-www-form-urlencoded'
     }
     
@@ -40,11 +43,11 @@ def upstox_login(creds):
         #Request was successful
         print("Access Token:", response.json().get('access_token'))
         creds["auth"]["access_token"] = response.json().get('access_token')
-        creds["api"]["headers"] = headers = {
-                                            'accept': 'application/json',
-                                            'Api-Version': '2.0',
-                                            'Authorization': f'Bearer {creds["auth"]["access_token"]}'
-                                        }
+        creds["api"]["headers"] = {
+                                    'accept': 'application/json',
+                                    'Api-Version': '2.0',
+                                    'Authorization': f'Bearer {creds["auth"]["access_token"]}'
+                                }
         print("Logged in : " + creds["auth"]["client_id"])
     else:
         #Request failed
@@ -56,6 +59,7 @@ def upstox_login(creds):
     return creds
     
 def upstox_auth(creds):
+    response = None
     try:
         url = "https://api.upstox.com/v2/user/profile"
         
@@ -75,11 +79,17 @@ def upstox_auth(creds):
             raise KeyError
             
     except(ValueError, KeyError):
-        logging.critical(response)
+        if response:
+            logging.critical("Auth API Failed:")
+            logging.critical(response.status_code)
+            logging.critical(response.text)
+            logging.critical("Curlify Request:")
+            logging.critical(curlify.to_curl(response.request))
         print("Logging into: " + creds["auth"]["client_id"])
         return upstox_login(creds)
 
 def upstox_margin(creds):
+    json_data = None
     try:
         url = "https://api.upstox.com/v2/user/get-funds-and-margin"
         
@@ -100,14 +110,14 @@ def upstox_margin(creds):
             url = "https://api.upstox.com/v2/user/profile"
             response = requests.get(url, headers = creds["api"]["headers"])
             if response.status_code != 200:
-                print(f"Failed to retrive data. Status Code: {response.status_code}")
+                print(f"Failed to retrieve data. Status Code: {response.status_code}")
                 raise KeyError
             else:
                 #Upstox is down in Margin API but rest everything is working.
                 return creds
                 
     except(ValueError, KeyError):
-        logging.critical("Erros in Margin Module: " + creds["auth"]["client_id"])
+        logging.critical("Errors in Margin Module: " + creds["auth"]["client_id"])
         logging.critical(json_data)
         logging.critical("Curlify Data...")
         logging.critical(curlify.to_curl(response.request))
@@ -118,6 +128,7 @@ def upstox_margin(creds):
     return creds
 
 def upstox_positions(creds):
+    json_data = None
     try:
         url = "https://api.upstox.com/v2/portfolio/short-term-positions"
         
@@ -138,20 +149,19 @@ def upstox_positions(creds):
             url = "https://api.upstox.com/v2/user/profile"
             response = requests.get(url, headers = creds["api"]["headers"])
             if response.status_code != 200:
-                print(f"Failed to retrive data. Status Code: {response.status_code}")
+                print(f"Failed to retrieve data. Status Code: {response.status_code}")
                 raise KeyError
             else:
                 #Upstox is down in Position API but rest everything is working.
                 return creds
                 
     except(ValueError, KeyError):
-        logging.critical("Erros in Position Module: " + creds["auth"]["client_id"])
+        logging.critical("Errors in Position Module: " + creds["auth"]["client_id"])
         logging.critical(json_data)
         logging.critical("Curlify Data...")
         logging.critical(curlify.to_curl(response.request))
         print(response)
 
     creds["api"]["last_updated"] = str(datetime.datetime.now().strftime('%H:%M:%S'))
-    creds["api"]["last_function"] = "positions"
+    creds["api"]["last_function"] = "margin"
     return creds
-
